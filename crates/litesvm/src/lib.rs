@@ -321,7 +321,7 @@ use {
     },
     solana_transaction_context::{ExecutionRecord, IndexOfAccount, TransactionContext},
     solana_transaction_error::TransactionError,
-    std::{cell::RefCell, path::Path, rc::Rc, sync::Arc},
+    std::{cell::RefCell, path::Path, rc::Rc, path::PathBuf, sync::Arc},
     types::SimulatedTransactionInfo,
     utils::{
         construct_instructions_account,
@@ -339,6 +339,10 @@ mod message_processor;
 mod precompiles;
 mod spl;
 mod utils;
+
+pub mod storage;
+
+use crate::storage::RocksDBStore;
 
 #[derive(Clone)]
 pub struct LiteSVM {
@@ -373,16 +377,27 @@ impl Default for LiteSVM {
 
 impl LiteSVM {
     /// Creates the basic test environment.
+    pub fn new_with_db_path<P: Into<PathBuf>>(path: P) -> Self {
+        let path = path.into();
+        let store = Arc::new(RocksDBStore::open(&path).expect("Failed to open RocksDB"));
+        let accounts_db = AccountsDb::new(store.clone());
+
+        Self {
+            accounts: accounts_db,
+            airdrop_kp: Keypair::new().to_bytes(),
+            feature_set: FeatureSet::default(),
+            latest_blockhash: create_blockhash(b"genesis"),
+            history: TransactionHistory::new(),
+            compute_budget: None,
+            sigverify: false,
+            blockhash_check: false,
+            fee_structure: FeeStructure::default(),
+            log_bytes_limit: Some(10_000),
+        }
+    }
+
     pub fn new() -> Self {
-        LiteSVM::default()
-            .with_feature_set(FeatureSet::all_enabled())
-            .with_builtins()
-            .with_lamports(1_000_000u64.wrapping_mul(LAMPORTS_PER_SOL))
-            .with_sysvars()
-            .with_precompiles()
-            .with_spl_programs()
-            .with_sigverify(true)
-            .with_blockhash_check(true)
+        Self::new_with_db_path("/tmp/litesvm-db")
     }
 
     #[cfg_attr(feature = "nodejs-internal", qualifiers(pub))]
@@ -617,23 +632,19 @@ impl LiteSVM {
     }
 
     /// Airdrops the account with the lamports specified.
-    pub fn airdrop(&mut self, pubkey: &Pubkey, lamports: u64) -> TransactionResult {
-        let payer = Keypair::from_bytes(&self.airdrop_kp).unwrap();
-        let tx = VersionedTransaction::try_new(
-            VersionedMessage::Legacy(Message::new_with_blockhash(
-                &[solana_system_interface::instruction::transfer(
-                    &payer.pubkey(),
-                    pubkey,
-                    lamports,
-                )],
-                Some(&payer.pubkey()),
-                &self.latest_blockhash,
-            )),
-            &[payer],
-        )
-        .unwrap();
+    pub fn airdrop(&mut self, pubkey: &Pubkey, lamports: u64) -> Result<(), LiteSVMError> {
+        // let mut acc = AccountSharedData::default();
+        let mut acc = AccountSharedData::from(Account {
+            lamports: lamports,
+            data: vec![],
+            owner: solana_sdk_ids::system_program::id(),
+            executable: false,
+            rent_epoch: 0,
+        });
 
-        self.send_transaction(tx)
+        acc.set_lamports(lamports);
+        self.accounts.add_account_no_checks(*pubkey, acc);
+        Ok(())
     }
 
     /// Adds a builtin program to the test environment.

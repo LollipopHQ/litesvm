@@ -30,6 +30,8 @@ use {
     solana_sysvar::Sysvar,
     solana_transaction_error::TransactionError,
     std::{collections::HashMap, sync::Arc},
+    crate::storage::RocksDBStore, // 引入持久化存储
+    tempfile::TempDir,
 };
 
 const FEES_ID: Pubkey = solana_pubkey::pubkey!("SysvarFees111111111111111111111111111111111");
@@ -62,16 +64,55 @@ pub(crate) struct AccountsDb {
     inner: HashMap<Pubkey, AccountSharedData>,
     pub(crate) programs_cache: ProgramCacheForTxBatch,
     pub(crate) sysvar_cache: SysvarCache,
+    pub(crate) store: Arc<RocksDBStore>, // 新增 RocksDB 存储
+    _temp_dir: Option<Arc<TempDir>>,
 }
 
+impl Default for AccountsDb {
+    fn default() -> Self {
+        // 每次构造时都新建一个临时目录
+        let tmp = tempfile::tempdir().expect("create tempdir for RocksDB");
+
+        let store = Arc::new(
+            RocksDBStore::open(tmp.path()).expect("open RocksDB in tempdir"),
+        );
+        // 调用 new 并且把 tmp 放进去保存
+        let mut db = Self::new(store);
+        db._temp_dir = Some(Arc::new(tmp));
+        db
+    }
+}
+
+
+impl Drop for AccountsDb {
+    fn drop(&mut self) {
+        // db.close() 自动完成，但你可以 log 一下
+        eprintln!("AccountsDB dropped and RocksDB closed");
+    }
+}
+
+
 impl AccountsDb {
+    pub fn new(store: Arc<RocksDBStore>) -> Self {
+        Self {
+            inner: HashMap::new(),
+            programs_cache: ProgramCacheForTxBatch::default(),
+            sysvar_cache: SysvarCache::default(),
+            store,
+            _temp_dir: None,
+        }
+    }
+
     pub(crate) fn get_account(&self, pubkey: &Pubkey) -> Option<AccountSharedData> {
-        self.inner.get(pubkey).map(|acc| acc.to_owned())
+        self.inner.get(pubkey)
+            .cloned()
+            .or_else(|| self.store.get_account(pubkey).ok().flatten())
     }
 
     /// We should only use this when we know we're not touching any executable or sysvar accounts,
     /// or have already handled such cases.
     pub(crate) fn add_account_no_checks(&mut self, pubkey: Pubkey, account: AccountSharedData) {
+        self.store.put_account(&pubkey, &account).ok();
         self.inner.insert(pubkey, account);
     }
 
@@ -198,6 +239,7 @@ impl AccountsDb {
 
     /// Skip the executable() checks for builtin accounts
     pub(crate) fn add_builtin_account(&mut self, pubkey: Pubkey, data: AccountSharedData) {
+        self.store.put_account(&pubkey, &data).ok();
         self.inner.insert(pubkey, data);
     }
 
@@ -210,6 +252,9 @@ impl AccountsDb {
             x.1.owner() == &bpf_loader_upgradeable::id()
                 && x.1.data().first().is_some_and(|byte| *byte == 3)
         });
+        for (pubkey, acc) in &accounts {
+            self.store.put_account(pubkey, acc).ok();
+        }
         for (pubkey, acc) in accounts {
             self.add_account(pubkey, acc)?;
         }
@@ -359,6 +404,7 @@ impl AccountsDb {
                     .checked_sub_lamports(lamports)
                     .map_err(|_| TransactionError::InsufficientFundsForFee)?;
 
+                self.store.put_account(pubkey, account).ok();
                 Ok(())
             }
             None => {
