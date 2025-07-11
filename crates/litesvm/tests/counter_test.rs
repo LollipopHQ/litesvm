@@ -1,21 +1,15 @@
 use {
     litesvm::LiteSVM,
     solana_account::{Account, ReadableAccount},
-    solana_address_lookup_table_interface::instruction::{
-        create_lookup_table, extend_lookup_table,
-    },
     solana_instruction::{account_meta::AccountMeta, Instruction},
     solana_keypair::Keypair,
-    solana_message::{
-        v0::Message as MessageV0, AddressLookupTableAccount, Message, VersionedMessage as VMsg,
-    },
+    solana_message::{Message, VersionedMessage as VMsg,},
     solana_pubkey::{pubkey, Pubkey},
     solana_rent::Rent,
     solana_signature::Signature,
     solana_signer::Signer,
     solana_transaction::{versioned::VersionedTransaction, Transaction},
     solana_system_interface::instruction::transfer,
-    solana_transaction_error::TransactionError,
     std::path::PathBuf,
     serial_test::serial,
     solana_native_token::LAMPORTS_PER_SOL,
@@ -30,55 +24,6 @@ fn read_counter_program() -> Vec<u8> {
     so_path.push("test_programs/target/deploy/counter.so");
     std::fs::read(so_path).unwrap()
 }
-
-// #[test]
-// #[serial]
-// pub fn integration_test() {
-//     // std::fs::remove_dir_all("/tmp/litesvm-db").ok();
-//     let mut svm = LiteSVM::new();
-//     // let mut svm = LiteSVM::new_with_db_path("/tmp/litesvm-db")
-//     //     .with_builtins()
-//     //     .with_lamports(1_000_000u64.wrapping_mul(LAMPORTS_PER_SOL))
-//     //     .with_sysvars()
-//     //     .with_spl_programs();
-
-//     let payer_kp = Keypair::new();
-//     let payer_pk = payer_kp.pubkey();
-//     let program_id = pubkey!("GtdambwDgHWrDJdVPBkEHGhCwokqgAoch162teUjJse2");
-//     svm.add_program(program_id, &read_counter_program());
-//     svm.airdrop(&payer_pk, 1000000000).unwrap();
-//     let blockhash = svm.latest_blockhash();
-//     let counter_address = pubkey!("J39wvrFY2AkoAUCke5347RMNk3ditxZfVidoZ7U6Fguf");
-//     let _ = svm.set_account(
-//         counter_address,
-//         Account {
-//             lamports: 5,
-//             data: vec![0_u8; std::mem::size_of::<u32>()],
-//             owner: program_id,
-//             ..Default::default()
-//         },
-//     );
-//     assert_eq!(
-//         svm.get_account(&counter_address).unwrap().data,
-//         0u32.to_le_bytes().to_vec()
-//     );
-//     let num_greets = 2u8;
-//     for deduper in 0..num_greets {
-//         let tx = make_tx(
-//             program_id,
-//             counter_address,
-//             &payer_pk,
-//             blockhash,
-//             &payer_kp,
-//             deduper,
-//         );
-//         let _ = svm.send_transaction(tx).unwrap();
-//     }
-//     assert_eq!(
-//         svm.get_account(&counter_address).unwrap().data,
-//         (num_greets as u32).to_le_bytes().to_vec()
-//     );
-// }
 
 fn make_tx(
     program_id: Pubkey,
