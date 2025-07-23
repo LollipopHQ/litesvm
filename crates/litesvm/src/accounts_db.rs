@@ -1,5 +1,6 @@
 use {
     crate::error::{InvalidSysvarDataError, LiteSVMError},
+    crate::storage::RocksDBStore, // 引入持久化存储
     log::error,
     solana_account::{state_traits::StateMut, AccountSharedData, ReadableAccount, WritableAccount},
     solana_address_lookup_table_interface::{error::AddressLookupError, state::AddressLookupTable},
@@ -30,7 +31,6 @@ use {
     solana_sysvar::Sysvar,
     solana_transaction_error::TransactionError,
     std::{collections::HashMap, sync::Arc},
-    crate::storage::RocksDBStore, // 引入持久化存储
     tempfile::TempDir,
 };
 
@@ -73,9 +73,7 @@ impl Default for AccountsDb {
         // 每次构造时都新建一个临时目录
         let tmp = tempfile::tempdir().expect("create tempdir for RocksDB");
 
-        let store = Arc::new(
-            RocksDBStore::open(tmp.path()).expect("open RocksDB in tempdir"),
-        );
+        let store = Arc::new(RocksDBStore::open(tmp.path()).expect("open RocksDB in tempdir"));
         // 调用 new 并且把 tmp 放进去保存
         let mut db = Self::new(store);
         db._temp_dir = Some(Arc::new(tmp));
@@ -83,14 +81,12 @@ impl Default for AccountsDb {
     }
 }
 
-
 impl Drop for AccountsDb {
     fn drop(&mut self) {
         // db.close() 自动完成，但你可以 log 一下
         eprintln!("AccountsDB dropped and RocksDB closed");
     }
 }
-
 
 impl AccountsDb {
     pub fn new(store: Arc<RocksDBStore>) -> Self {
@@ -104,7 +100,8 @@ impl AccountsDb {
     }
 
     pub(crate) fn get_account(&self, pubkey: &Pubkey) -> Option<AccountSharedData> {
-        self.inner.get(pubkey)
+        self.inner
+            .get(pubkey)
             .cloned()
             .or_else(|| self.store.get_account(pubkey).ok().flatten())
     }

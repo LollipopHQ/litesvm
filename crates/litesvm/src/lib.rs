@@ -255,10 +255,6 @@ much easier.
 
 #[cfg(feature = "nodejs-internal")]
 use qualifier_attr::qualifiers;
-use solana_native_token::LAMPORTS_PER_SOL;
-use solana_program_runtime::execution_budget::SVMTransactionExecutionBudget;
-use solana_program_runtime::execution_budget::SVMTransactionExecutionCost;
-use solana_svm_callback::InvokeContextCallback;
 #[allow(deprecated)]
 use solana_sysvar::recent_blockhashes::IterItem;
 #[allow(deprecated)]
@@ -275,6 +271,7 @@ use {
         },
         utils::{create_blockhash, rent::RentState},
     },
+    agave_feature_set::FeatureSet,
     agave_reserved_account_keys::ReservedAccountKeys,
     itertools::Itertools,
     log::error,
@@ -291,18 +288,16 @@ use {
     solana_compute_budget_instruction::instructions_processor::process_compute_budget_instructions,
     solana_epoch_rewards::EpochRewards,
     solana_epoch_schedule::EpochSchedule,
-    agave_feature_set::FeatureSet,
-    solana_svm_feature_set::SVMFeatureSet,
     solana_fee_structure::FeeStructure,
     solana_hash::Hash,
     solana_keypair::Keypair,
     solana_last_restart_slot::LastRestartSlot,
     solana_log_collector::LogCollector,
-    solana_message::{
-        inner_instruction::InnerInstructionsList, SanitizedMessage,
-    },
+    solana_message::{inner_instruction::InnerInstructionsList, SanitizedMessage},
+    solana_native_token::LAMPORTS_PER_SOL,
     solana_nonce::{state::DurableNonce, NONCED_TX_MARKER_IX_INDEX},
     solana_program_runtime::{
+        execution_budget::{SVMTransactionExecutionBudget, SVMTransactionExecutionCost},
         invoke_context::{BuiltinFunctionWithContext, EnvironmentConfig, InvokeContext},
         loaded_programs::{LoadProgramMetrics, ProgramCacheEntry},
     },
@@ -314,6 +309,8 @@ use {
     solana_slot_hashes::SlotHashes,
     solana_slot_history::SlotHistory,
     solana_stake_interface::stake_history::StakeHistory,
+    solana_svm_callback::InvokeContextCallback,
+    solana_svm_feature_set::SVMFeatureSet,
     solana_svm_transaction::svm_message::SVMMessage,
     solana_system_program::{get_system_account_kind, SystemAccountKind},
     solana_sysvar::Sysvar,
@@ -325,7 +322,12 @@ use {
     },
     solana_transaction_context::{ExecutionRecord, IndexOfAccount, TransactionContext},
     solana_transaction_error::TransactionError,
-    std::{cell::RefCell, path::Path, rc::Rc, path::PathBuf, sync::Arc},
+    std::{
+        cell::RefCell,
+        path::{Path, PathBuf},
+        rc::Rc,
+        sync::Arc,
+    },
     types::SimulatedTransactionInfo,
     utils::{
         construct_instructions_account,
@@ -532,45 +534,105 @@ impl LiteSVM {
     fn get_svm_feature_set(&self) -> SVMFeatureSet {
         use agave_feature_set::*;
         SVMFeatureSet {
-            lift_cpi_caller_restriction: self.feature_set.is_active(&lift_cpi_caller_restriction::id()),
-            move_precompile_verification_to_svm: self.feature_set.is_active(&move_precompile_verification_to_svm::id()),
-            remove_accounts_executable_flag_checks: self.feature_set.is_active(&remove_accounts_executable_flag_checks::id()),
-            bpf_account_data_direct_mapping: self.feature_set.is_active(&bpf_account_data_direct_mapping::id()),
-            enable_bpf_loader_set_authority_checked_ix: self.feature_set.is_active(&enable_bpf_loader_set_authority_checked_ix::id()),
+            lift_cpi_caller_restriction: self
+                .feature_set
+                .is_active(&lift_cpi_caller_restriction::id()),
+            move_precompile_verification_to_svm: self
+                .feature_set
+                .is_active(&move_precompile_verification_to_svm::id()),
+            remove_accounts_executable_flag_checks: self
+                .feature_set
+                .is_active(&remove_accounts_executable_flag_checks::id()),
+            bpf_account_data_direct_mapping: self
+                .feature_set
+                .is_active(&bpf_account_data_direct_mapping::id()),
+            enable_bpf_loader_set_authority_checked_ix: self
+                .feature_set
+                .is_active(&enable_bpf_loader_set_authority_checked_ix::id()),
             enable_loader_v4: self.feature_set.is_active(&enable_loader_v4::id()),
-            deplete_cu_meter_on_vm_failure: self.feature_set.is_active(&deplete_cu_meter_on_vm_failure::id()),
+            deplete_cu_meter_on_vm_failure: self
+                .feature_set
+                .is_active(&deplete_cu_meter_on_vm_failure::id()),
             abort_on_invalid_curve: self.feature_set.is_active(&abort_on_invalid_curve::id()),
             blake3_syscall_enabled: self.feature_set.is_active(&blake3_syscall_enabled::id()),
-            curve25519_syscall_enabled: self.feature_set.is_active(&curve25519_syscall_enabled::id()),
-            disable_deploy_of_alloc_free_syscall: self.feature_set.is_active(&disable_deploy_of_alloc_free_syscall::id()),
+            curve25519_syscall_enabled: self
+                .feature_set
+                .is_active(&curve25519_syscall_enabled::id()),
+            disable_deploy_of_alloc_free_syscall: self
+                .feature_set
+                .is_active(&disable_deploy_of_alloc_free_syscall::id()),
             disable_fees_sysvar: self.feature_set.is_active(&disable_fees_sysvar::id()),
             disable_sbpf_v0_execution: self.feature_set.is_active(&disable_sbpf_v0_execution::id()),
-            enable_alt_bn128_compression_syscall: self.feature_set.is_active(&enable_alt_bn128_compression_syscall::id()),
+            enable_alt_bn128_compression_syscall: self
+                .feature_set
+                .is_active(&enable_alt_bn128_compression_syscall::id()),
             enable_alt_bn128_syscall: self.feature_set.is_active(&enable_alt_bn128_syscall::id()),
-            enable_big_mod_exp_syscall: self.feature_set.is_active(&enable_big_mod_exp_syscall::id()),
-            enable_get_epoch_stake_syscall: self.feature_set.is_active(&enable_get_epoch_stake_syscall::id()),
+            enable_big_mod_exp_syscall: self
+                .feature_set
+                .is_active(&enable_big_mod_exp_syscall::id()),
+            enable_get_epoch_stake_syscall: self
+                .feature_set
+                .is_active(&enable_get_epoch_stake_syscall::id()),
             enable_poseidon_syscall: self.feature_set.is_active(&enable_poseidon_syscall::id()),
-            enable_sbpf_v1_deployment_and_execution: self.feature_set.is_active(&enable_sbpf_v1_deployment_and_execution::id()),
-            enable_sbpf_v2_deployment_and_execution: self.feature_set.is_active(&enable_sbpf_v2_deployment_and_execution::id()),
-            enable_sbpf_v3_deployment_and_execution: self.feature_set.is_active(&enable_sbpf_v3_deployment_and_execution::id()),
-            get_sysvar_syscall_enabled: self.feature_set.is_active(&get_sysvar_syscall_enabled::id()),
+            enable_sbpf_v1_deployment_and_execution: self
+                .feature_set
+                .is_active(&enable_sbpf_v1_deployment_and_execution::id()),
+            enable_sbpf_v2_deployment_and_execution: self
+                .feature_set
+                .is_active(&enable_sbpf_v2_deployment_and_execution::id()),
+            enable_sbpf_v3_deployment_and_execution: self
+                .feature_set
+                .is_active(&enable_sbpf_v3_deployment_and_execution::id()),
+            get_sysvar_syscall_enabled: self
+                .feature_set
+                .is_active(&get_sysvar_syscall_enabled::id()),
             last_restart_slot_sysvar: self.feature_set.is_active(&last_restart_slot_sysvar::id()),
-            reenable_sbpf_v0_execution: self.feature_set.is_active(&reenable_sbpf_v0_execution::id()),
-            remaining_compute_units_syscall_enabled: self.feature_set.is_active(&remaining_compute_units_syscall_enabled::id()),
-            remove_bpf_loader_incorrect_program_id: self.feature_set.is_active(&remove_bpf_loader_incorrect_program_id::id()),
-            move_stake_and_move_lamports_ixs: self.feature_set.is_active(&move_stake_and_move_lamports_ixs::id()),
-            stake_raise_minimum_delegation_to_1_sol: self.feature_set.is_active(&stake_raise_minimum_delegation_to_1_sol::id()),
+            reenable_sbpf_v0_execution: self
+                .feature_set
+                .is_active(&reenable_sbpf_v0_execution::id()),
+            remaining_compute_units_syscall_enabled: self
+                .feature_set
+                .is_active(&remaining_compute_units_syscall_enabled::id()),
+            remove_bpf_loader_incorrect_program_id: self
+                .feature_set
+                .is_active(&remove_bpf_loader_incorrect_program_id::id()),
+            move_stake_and_move_lamports_ixs: self
+                .feature_set
+                .is_active(&move_stake_and_move_lamports_ixs::id()),
+            stake_raise_minimum_delegation_to_1_sol: self
+                .feature_set
+                .is_active(&stake_raise_minimum_delegation_to_1_sol::id()),
             deprecate_legacy_vote_ixs: self.feature_set.is_active(&deprecate_legacy_vote_ixs::id()),
-            mask_out_rent_epoch_in_vm_serialization: self.feature_set.is_active(&mask_out_rent_epoch_in_vm_serialization::id()),
-            simplify_alt_bn128_syscall_error_codes: self.feature_set.is_active(&simplify_alt_bn128_syscall_error_codes::id()),
-            fix_alt_bn128_multiplication_input_length: self.feature_set.is_active(&fix_alt_bn128_multiplication_input_length::id()),
-            loosen_cpi_size_restriction: self.feature_set.is_active(&loosen_cpi_size_restriction::id()),
-            increase_tx_account_lock_limit: self.feature_set.is_active(&increase_tx_account_lock_limit::id()),
-            disable_rent_fees_collection: self.feature_set.is_active(&disable_rent_fees_collection::id()),
-            enable_extend_program_checked: self.feature_set.is_active(&enable_extend_program_checked::id()),
-            formalize_loaded_transaction_data_size: self.feature_set.is_active(&formalize_loaded_transaction_data_size::id()),
-            disable_zk_elgamal_proof_program: self.feature_set.is_active(&disable_zk_elgamal_proof_program::id()),
-            reenable_zk_elgamal_proof_program: self.feature_set.is_active(&reenable_zk_elgamal_proof_program::id()),
+            mask_out_rent_epoch_in_vm_serialization: self
+                .feature_set
+                .is_active(&mask_out_rent_epoch_in_vm_serialization::id()),
+            simplify_alt_bn128_syscall_error_codes: self
+                .feature_set
+                .is_active(&simplify_alt_bn128_syscall_error_codes::id()),
+            fix_alt_bn128_multiplication_input_length: self
+                .feature_set
+                .is_active(&fix_alt_bn128_multiplication_input_length::id()),
+            loosen_cpi_size_restriction: self
+                .feature_set
+                .is_active(&loosen_cpi_size_restriction::id()),
+            increase_tx_account_lock_limit: self
+                .feature_set
+                .is_active(&increase_tx_account_lock_limit::id()),
+            disable_rent_fees_collection: self
+                .feature_set
+                .is_active(&disable_rent_fees_collection::id()),
+            enable_extend_program_checked: self
+                .feature_set
+                .is_active(&enable_extend_program_checked::id()),
+            formalize_loaded_transaction_data_size: self
+                .feature_set
+                .is_active(&formalize_loaded_transaction_data_size::id()),
+            disable_zk_elgamal_proof_program: self
+                .feature_set
+                .is_active(&disable_zk_elgamal_proof_program::id()),
+            reenable_zk_elgamal_proof_program: self
+                .feature_set
+                .is_active(&reenable_zk_elgamal_proof_program::id()),
         }
     }
 
@@ -693,7 +755,7 @@ impl LiteSVM {
     pub fn airdrop(&mut self, pubkey: &Pubkey, lamports: u64) -> Result<(), LiteSVMError> {
         // let mut acc = AccountSharedData::default();
         let mut acc = AccountSharedData::from(Account {
-            lamports: lamports,
+            lamports,
             data: vec![],
             owner: solana_sdk_ids::system_program::id(),
             executable: false,
@@ -868,7 +930,7 @@ impl LiteSVM {
             heap_size: compute_budget_limits.updated_heap_bytes,
             ..ComputeBudget::default()
         });
-        
+
         let blockhash = tx.message().recent_blockhash();
         //reload program cache
         let mut program_cache_for_tx_batch = self.accounts.programs_cache.clone();
@@ -1008,13 +1070,13 @@ impl LiteSVM {
                         EnvironmentConfig::new(
                             *blockhash,
                             self.fee_structure.lamports_per_signature,
-                            &LiteSVMCallback{},
+                            &LiteSVMCallback {},
                             &self.get_svm_feature_set(),
                             &self.accounts.sysvar_cache,
                         ),
                         Some(log_collector),
                         Self::compute_budget_to_execution_budget(&compute_budget),
-                        Self::compute_budget_to_execution_cost(&compute_budget)
+                        Self::compute_budget_to_execution_cost(&compute_budget),
                     ),
                     &mut ExecuteTimings::default(),
                     &mut accumulated_consume_units,
@@ -1037,7 +1099,9 @@ impl LiteSVM {
         }
     }
 
-    fn compute_budget_to_execution_budget(compute_budget: &ComputeBudget) -> SVMTransactionExecutionBudget {
+    fn compute_budget_to_execution_budget(
+        compute_budget: &ComputeBudget,
+    ) -> SVMTransactionExecutionBudget {
         SVMTransactionExecutionBudget {
             compute_unit_limit: compute_budget.compute_unit_limit,
             max_instruction_stack_depth: compute_budget.max_instruction_stack_depth,
@@ -1050,7 +1114,9 @@ impl LiteSVM {
         }
     }
 
-    fn compute_budget_to_execution_cost(compute_budget: &ComputeBudget) -> SVMTransactionExecutionCost {
+    fn compute_budget_to_execution_cost(
+        compute_budget: &ComputeBudget,
+    ) -> SVMTransactionExecutionCost {
         SVMTransactionExecutionCost {
             log_64_units: compute_budget.log_64_units,
             create_program_address_units: compute_budget.create_program_address_units,
@@ -1062,26 +1128,34 @@ impl LiteSVM {
             sysvar_base_cost: compute_budget.sysvar_base_cost,
             secp256k1_recover_cost: compute_budget.secp256k1_recover_cost,
             syscall_base_cost: compute_budget.syscall_base_cost,
-            curve25519_edwards_validate_point_cost: compute_budget.curve25519_edwards_validate_point_cost,
+            curve25519_edwards_validate_point_cost: compute_budget
+                .curve25519_edwards_validate_point_cost,
             curve25519_edwards_add_cost: compute_budget.curve25519_edwards_add_cost,
             curve25519_edwards_subtract_cost: compute_budget.curve25519_edwards_subtract_cost,
             curve25519_edwards_multiply_cost: compute_budget.curve25519_edwards_multiply_cost,
             curve25519_edwards_msm_base_cost: compute_budget.curve25519_edwards_msm_base_cost,
-            curve25519_edwards_msm_incremental_cost: compute_budget.curve25519_edwards_msm_incremental_cost,
-            curve25519_ristretto_validate_point_cost: compute_budget.curve25519_ristretto_validate_point_cost,
+            curve25519_edwards_msm_incremental_cost: compute_budget
+                .curve25519_edwards_msm_incremental_cost,
+            curve25519_ristretto_validate_point_cost: compute_budget
+                .curve25519_ristretto_validate_point_cost,
             curve25519_ristretto_add_cost: compute_budget.curve25519_ristretto_add_cost,
             curve25519_ristretto_subtract_cost: compute_budget.curve25519_ristretto_subtract_cost,
             curve25519_ristretto_multiply_cost: compute_budget.curve25519_ristretto_multiply_cost,
             curve25519_ristretto_msm_base_cost: compute_budget.curve25519_ristretto_msm_base_cost,
-            curve25519_ristretto_msm_incremental_cost: compute_budget.curve25519_ristretto_msm_incremental_cost,
+            curve25519_ristretto_msm_incremental_cost: compute_budget
+                .curve25519_ristretto_msm_incremental_cost,
             heap_cost: compute_budget.heap_cost,
             mem_op_base_cost: compute_budget.mem_op_base_cost,
             alt_bn128_addition_cost: compute_budget.alt_bn128_addition_cost,
             alt_bn128_multiplication_cost: compute_budget.alt_bn128_multiplication_cost,
-            alt_bn128_pairing_one_pair_cost_first: compute_budget.alt_bn128_pairing_one_pair_cost_first,
-            alt_bn128_pairing_one_pair_cost_other: compute_budget.alt_bn128_pairing_one_pair_cost_other,
-            big_modular_exponentiation_base_cost: compute_budget.big_modular_exponentiation_base_cost,
-            big_modular_exponentiation_cost_divisor: compute_budget.big_modular_exponentiation_cost_divisor,
+            alt_bn128_pairing_one_pair_cost_first: compute_budget
+                .alt_bn128_pairing_one_pair_cost_first,
+            alt_bn128_pairing_one_pair_cost_other: compute_budget
+                .alt_bn128_pairing_one_pair_cost_other,
+            big_modular_exponentiation_base_cost: compute_budget
+                .big_modular_exponentiation_base_cost,
+            big_modular_exponentiation_cost_divisor: compute_budget
+                .big_modular_exponentiation_cost_divisor,
             poseidon_cost_coefficient_a: compute_budget.poseidon_cost_coefficient_a,
             poseidon_cost_coefficient_c: compute_budget.poseidon_cost_coefficient_c,
             get_remaining_compute_units_cost: compute_budget.get_remaining_compute_units_cost,

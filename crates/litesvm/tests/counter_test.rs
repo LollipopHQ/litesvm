@@ -1,20 +1,19 @@
 use {
-    litesvm::LiteSVM,
+    litesvm::{storage::RocksDBStore, LiteSVM},
+    serial_test::serial,
     solana_account::{Account, ReadableAccount},
     solana_instruction::{account_meta::AccountMeta, Instruction},
     solana_keypair::Keypair,
-    solana_message::{Message, VersionedMessage as VMsg,},
+    solana_message::{Message, VersionedMessage as VMsg},
+    solana_native_token::LAMPORTS_PER_SOL,
     solana_pubkey::{pubkey, Pubkey},
     solana_rent::Rent,
     solana_signature::Signature,
     solana_signer::Signer,
-    solana_transaction::{versioned::VersionedTransaction, Transaction},
     solana_system_interface::instruction::transfer,
+    solana_transaction::{versioned::VersionedTransaction, Transaction},
     std::path::PathBuf,
-    serial_test::serial,
-    solana_native_token::LAMPORTS_PER_SOL,
     tempfile::TempDir,
-    litesvm::storage::RocksDBStore,
 };
 
 const NUM_GREETINGS: u8 = 127;
@@ -140,7 +139,8 @@ fn test_rocksdb_persistence_via_direct_store() {
                 owner: program,
                 ..Default::default()
             },
-        ).unwrap();
+        )
+        .unwrap();
 
         // 触发一次写入
         let tx = VersionedTransaction::try_new(
@@ -170,13 +170,9 @@ fn test_rocksdb_persistence_via_direct_store() {
                 .unwrap();
             // **注意**：用方法访问
             assert_eq!(acc.lamports(), 7);
-            assert_eq!(
-                u32::from_le_bytes(acc.data()[..4].try_into().unwrap()),
-                123
-            );
+            assert_eq!(u32::from_le_bytes(acc.data()[..4].try_into().unwrap()), 123);
             drop(svm2);
         }
-        
 
         // b) 直接打开底层 RocksDBStore 再验证一次
         let store = RocksDBStore::open(path).expect("open store");
@@ -307,7 +303,7 @@ fn test_rocksdb_persistence_via_direct_store() {
 
 //         // ✅ 触发 send_transaction 才会写入 RocksDB
 //         let _ = svm.send_transaction(tx);
-//     }    
+//     }
 // }
 
 // #[test]
@@ -330,7 +326,6 @@ fn test_rocksdb_persistence_via_direct_store() {
 //     let value = u32::from_le_bytes(acc.data[..4].try_into().unwrap());
 //     assert_eq!(value, 42); // 验证数据还在
 // }
-
 
 #[test]
 #[serial]

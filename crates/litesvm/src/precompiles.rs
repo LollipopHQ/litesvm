@@ -1,7 +1,7 @@
 use {
     crate::LiteSVM,
-    solana_account::{AccountSharedData, WritableAccount},
     agave_precompiles::get_precompiles,
+    solana_account::{AccountSharedData, WritableAccount},
     solana_sdk_ids::native_loader,
 };
 
